@@ -47,11 +47,36 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
 
     def wrap(self, sock):
         """Wrap and return the given socket, plus WSGI environ entries."""
+        ciphers = {
+            'ECDHE-RSA-AES256-GCM-SHA384',
+            'ECDHE-RSA-AES256-SHA384',
+            'AES256-GCM-SHA384',
+            'AES256-SHA256',
+            'ECDHE-RSA-AES128-GCM-SHA256',
+            'ECDHE-RSA-AES128-SHA256',
+            'AES128-GCM-SHA256',
+            'AES128-SHA256',
+            'DHE-RSA-AES128-CCM'
+        }
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        context.set_ciphers(':'.join(ciphers))
+
+        context.set_ecdh_curve('prime256v1')
+ 
+        context.options |= ssl.OP_NO_SSLv2
+        context.options |= ssl.OP_NO_SSLv3
+        context.options |= ssl.OP_SINGLE_ECDH_USE
+        context.options |= ssl.OP_SINGLE_DH_USE
+        context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
+
+        context.load_cert_chain(certfile=self.certificate, keyfile=self.private_key)
+
         try:
-            s = ssl.wrap_socket(sock, do_handshake_on_connect=True,
-                                server_side=True, certfile=self.certificate,
-                                keyfile=self.private_key,
-                                ssl_version=ssl.PROTOCOL_SSLv23)
+            s = context.wrap_socket(sock, server_side=True, do_handshake_on_connect=True) 
+                 
+
+       
         except ssl.SSLError:
             e = sys.exc_info()[1]
             if e.errno == ssl.SSL_ERROR_EOF:
@@ -69,6 +94,7 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
                     return None, {}
             raise
         return s, self.get_environ(s)
+
 
     # TODO: fill this out more with mod ssl env
     def get_environ(self, sock):
