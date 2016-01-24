@@ -43,6 +43,7 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
 
     def bind(self, sock):
         """Wrap and return the given socket."""
+
         return sock
 
     def wrap(self, sock):
@@ -50,13 +51,7 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
         ciphers = {
             'ECDHE-RSA-AES256-GCM-SHA384',
             'ECDHE-RSA-AES256-SHA384',
-            'AES256-GCM-SHA384',
-            'AES256-SHA256',
-            'ECDHE-RSA-AES128-GCM-SHA256',
-            'ECDHE-RSA-AES128-SHA256',
-            'AES128-GCM-SHA256',
-            'AES128-SHA256',
-            'DHE-RSA-AES128-CCM'
+            'ECDHE-RSA-AES256-SHA'
         }
 
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
@@ -66,6 +61,8 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
  
         context.options |= ssl.OP_NO_SSLv2
         context.options |= ssl.OP_NO_SSLv3
+        context.options |= ssl.OP_NO_TLSv1
+        context.options |= ssl.OP_NO_TLSv1_1
         context.options |= ssl.OP_SINGLE_ECDH_USE
         context.options |= ssl.OP_SINGLE_DH_USE
         context.options |= ssl.OP_CIPHER_SERVER_PREFERENCE
@@ -94,7 +91,6 @@ class BuiltinSSLAdapter(wsgiserver.SSLAdapter):
                     return None, {}
             raise
         return s, self.get_environ(s)
-
 
     # TODO: fill this out more with mod ssl env
     def get_environ(self, sock):
