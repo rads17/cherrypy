@@ -84,33 +84,19 @@ try:
 except:
     import Queue as queue
 import re
-import email.utils
+import rfc822
 import socket
 import sys
-import threading
-import time
-import traceback as traceback_
-import operator
-from urllib import unquote
-import warnings
-import errno
-import logging
-try:
-    # prefer slower Python-based io module
-    import _pyio as io
-except ImportError:
-    # Python 2.6
-    import io
-
-
 if 'win' in sys.platform and hasattr(socket, "AF_INET6"):
     if not hasattr(socket, 'IPPROTO_IPV6'):
         socket.IPPROTO_IPV6 = 41
     if not hasattr(socket, 'IPV6_V6ONLY'):
         socket.IPV6_V6ONLY = 27
-
-
-DEFAULT_BUFFER_SIZE = io.DEFAULT_BUFFER_SIZE
+try:
+    import cStringIO as StringIO
+except ImportError:
+    import StringIO
+DEFAULT_BUFFER_SIZE = -1
 
 
 class FauxSocket(object):
@@ -124,6 +110,23 @@ _fileobject_uses_str_type = isinstance(
     socket._fileobject(FauxSocket())._rbuf, basestring)
 del FauxSocket  # this class is not longer required for anything.
 
+import threading
+import time
+import traceback
+
+
+def format_exc(limit=None):
+    """Like print_exc() but return a string. Backport for Python 2.3."""
+    try:
+        etype, value, tb = sys.exc_info()
+        return ''.join(traceback.format_exception(etype, value, tb, limit))
+    finally:
+        etype = value = tb = None
+
+import operator
+
+from urllib import unquote
+import warnings
 
 if sys.version_info >= (3, 0):
     bytestr = bytes
@@ -162,6 +165,8 @@ QUESTION_MARK = ntob('?')
 ASTERISK = ntob('*')
 FORWARD_SLASH = ntob('/')
 quoted_slash = re.compile(ntob("(?i)%2F"))
+
+import errno
 
 
 def plat_specific_errors(*errnames):
@@ -206,6 +211,7 @@ comma_separated_headers = [
 ]
 
 
+import logging
 if not hasattr(logging, 'statistics'):
     logging.statistics = {}
 
@@ -969,10 +975,12 @@ class HTTPRequest(object):
                 self.rfile.read(remaining)
 
         if "date" not in hkeys:
-            self.outheaders.append(("Date", email.utils.formatdate()))
+            self.outheaders.append(("Date", rfc822.formatdate()))
 
         if "server" not in hkeys:
             self.outheaders.append(("Server", self.server.server_name))
+
+        self.outheaders.append(("Strict-Transport-Security", "max-age=63072000; includeSubDomains"))
 
         buf = [self.server.protocol + SPACE + self.status + CRLF]
         for k, v in self.outheaders:
@@ -1050,7 +1058,7 @@ class CP_fileobject(socket._fileobject):
             if size < 0:
                 # Read until EOF
                 # reset _rbuf.  we consume it via buf.
-                self._rbuf = io.BytesIO()
+                self._rbuf = StringIO.StringIO()
                 while True:
                     data = self.recv(rbufsize)
                     if not data:
@@ -1065,12 +1073,12 @@ class CP_fileobject(socket._fileobject):
                     # return.
                     buf.seek(0)
                     rv = buf.read(size)
-                    self._rbuf = io.BytesIO()
+                    self._rbuf = StringIO.StringIO()
                     self._rbuf.write(buf.read())
                     return rv
 
                 # reset _rbuf.  we consume it via buf.
-                self._rbuf = io.BytesIO()
+                self._rbuf = StringIO.StringIO()
                 while True:
                     left = size - buf_len
                     # recv() will malloc the amount of memory given as its
@@ -1108,7 +1116,7 @@ class CP_fileobject(socket._fileobject):
                 buf.seek(0)
                 bline = buf.readline(size)
                 if bline.endswith('\n') or len(bline) == size:
-                    self._rbuf = io.BytesIO()
+                    self._rbuf = StringIO.StringIO()
                     self._rbuf.write(buf.read())
                     return bline
                 del bline
@@ -1119,7 +1127,7 @@ class CP_fileobject(socket._fileobject):
                     buf.seek(0)
                     buffers = [buf.read()]
                     # reset _rbuf.  we consume it via buf.
-                    self._rbuf = io.BytesIO()
+                    self._rbuf = StringIO.StringIO()
                     data = None
                     recv = self.recv
                     while data != "\n":
@@ -1131,7 +1139,7 @@ class CP_fileobject(socket._fileobject):
 
                 buf.seek(0, 2)  # seek end
                 # reset _rbuf.  we consume it via buf.
-                self._rbuf = io.BytesIO()
+                self._rbuf = StringIO.StringIO()
                 while True:
                     data = self.recv(self._rbufsize)
                     if not data:
@@ -1153,11 +1161,11 @@ class CP_fileobject(socket._fileobject):
                 if buf_len >= size:
                     buf.seek(0)
                     rv = buf.read(size)
-                    self._rbuf = io.BytesIO()
+                    self._rbuf = StringIO.StringIO()
                     self._rbuf.write(buf.read())
                     return rv
                 # reset _rbuf.  we consume it via buf.
-                self._rbuf = io.BytesIO()
+                self._rbuf = StringIO.StringIO()
                 while True:
                     data = self.recv(self._rbufsize)
                     if not data:
@@ -1756,7 +1764,7 @@ class HTTPServer(object):
     timeout = 10
     """The timeout in seconds for accepted connections (default 10)."""
 
-    version = "CherryPy/4.0.1"
+    version = "CherryPy/4.0.0"
     """A version string for the HTTPServer."""
 
     software = None
@@ -1883,6 +1891,25 @@ class HTTPServer(object):
         if self.software is None:
             self.software = "%s Server" % self.version
 
+        # SSL backward compatibility
+        if (self.ssl_adapter is None and
+                getattr(self, 'ssl_certificate', None) and
+                getattr(self, 'ssl_private_key', None)):
+            warnings.warn(
+                "SSL attributes are deprecated in CherryPy 3.2, and will "
+                "be removed in CherryPy 3.3. Use an ssl_adapter attribute "
+                "instead.",
+                DeprecationWarning
+            )
+            try:
+                from cherrypy.wsgiserver.ssl_pyopenssl import pyOpenSSLAdapter
+            except ImportError:
+                pass
+            else:
+                self.ssl_adapter = pyOpenSSLAdapter(
+                    self.ssl_certificate, self.ssl_private_key,
+                    getattr(self, 'ssl_certificate_chain', None))
+
         # Select the appropriate socket
         if isinstance(self.bind_addr, basestring):
             # AF_UNIX socket
@@ -1895,7 +1922,7 @@ class HTTPServer(object):
 
             # So everyone can access the socket...
             try:
-                os.chmod(self.bind_addr, 0o777)
+                os.chmod(self.bind_addr, 511)  # 0777
             except:
                 pass
 
@@ -1964,7 +1991,7 @@ class HTTPServer(object):
         sys.stderr.write(msg + '\n')
         sys.stderr.flush()
         if traceback:
-            tblines = traceback_.format_exc()
+            tblines = format_exc()
             sys.stderr.write(tblines)
             sys.stderr.flush()
 
@@ -2166,7 +2193,7 @@ ssl_adapters = {
 }
 
 
-def get_ssl_adapter_class(name='builtin'):
+def get_ssl_adapter_class(name='pyopenssl'):
     """Return an SSL adapter class for the given name."""
     adapter = ssl_adapters[name.lower()]
     if isinstance(adapter, basestring):
